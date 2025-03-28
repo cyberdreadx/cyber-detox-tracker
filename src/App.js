@@ -49,7 +49,18 @@ function App() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
   const [chartData, setChartData] = useState([]);
-  const [randomTip, setRandomTip] = useState(DETOX_TIPS[Math.floor(Math.random() * DETOX_TIPS.length)]);
+  const [randomTip, setRandomTip] = useState('');
+  
+  // Set up a random tip and change it daily
+  useEffect(() => {
+    setRandomTip(DETOX_TIPS[Math.floor(Math.random() * DETOX_TIPS.length)]);
+    
+    const tipInterval = setInterval(() => {
+      setRandomTip(DETOX_TIPS[Math.floor(Math.random() * DETOX_TIPS.length)]);
+    }, 86400000); // 24 hours
+    
+    return () => clearInterval(tipInterval);
+  }, []);
   
   // Fetch data from Firebase
   useEffect(() => {
@@ -604,6 +615,10 @@ function App() {
                 <li key={index}>{tip}</li>
               ))}
             </ul>
+            
+            <div className="test-info">
+              <button onClick={simulateTest} className="test-btn">Simulate Test</button>
+            </div>
           </div>
         )}
         
