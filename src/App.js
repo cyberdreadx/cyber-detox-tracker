@@ -50,30 +50,30 @@ function App() {
   const [error, setError] = useState(null);
   const [chartData, setChartData] = useState([]);
   const [randomTip, setRandomTip] = useState('');
-  
+
   // Set up a random tip and change it daily
   useEffect(() => {
     setRandomTip(DETOX_TIPS[Math.floor(Math.random() * DETOX_TIPS.length)]);
-    
+
     const tipInterval = setInterval(() => {
       setRandomTip(DETOX_TIPS[Math.floor(Math.random() * DETOX_TIPS.length)]);
     }, 86400000); // 24 hours
-    
+
     return () => clearInterval(tipInterval);
   }, []);
-  
+
   // Fetch data from Firebase
   useEffect(() => {
     const fetchData = async () => {
       try {
         setIsLoading(true);
-        
+
         // Get logs from Firestore
         const logsCollection = collection(db, "logs");
         const q = query(logsCollection, orderBy("createdAt", "desc"));
         const querySnapshot = await getDocs(q);
         const logsList = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-        
+
         // Get test results from Firestore
         const testCollection = collection(db, "testResults");
         const testQuery = query(testCollection, orderBy("date", "desc"));
@@ -82,7 +82,7 @@ function App() {
           id: doc.id,
           ...doc.data()
         }));
-        
+
         // Get settings
         const settingsDoc = doc(db, "settings", "user");
         const settingsSnapshot = await getDoc(settingsDoc);
@@ -91,7 +91,7 @@ function App() {
           if (data.usageFrequency) setUsageFrequency(data.usageFrequency);
           if (data.darkMode !== undefined) setDarkMode(data.darkMode);
         }
-        
+
         // Get health data for today
         const today = new Date().toISOString().split('T')[0];
         const healthCollection = collection(db, "healthTracking");
@@ -102,7 +102,7 @@ function App() {
           setWaterIntake(healthData.waterIntake || 0);
           setExercise(healthData.exercise || 0);
         }
-        
+
         setLogs(logsList);
         setTestResults(resultsList);
         setIsLoading(false);
@@ -116,18 +116,18 @@ function App() {
     };
     fetchData();
   }, []);
-  
+
   // Apply dark mode
   useEffect(() => {
     document.body.classList.toggle('dark-mode', darkMode);
   }, [darkMode]);
-  
+
   // Update time remaining every minute
   useEffect(() => {
     const timer = setInterval(() => setTimeRemaining(calculateTimeRemaining()), 60000);
     return () => clearInterval(timer);
   }, []);
-  
+
   // Process logs for chart and calculations
   useEffect(() => {
     if (logs.length > 0) {
@@ -137,36 +137,36 @@ function App() {
       const now = new Date();
       const diffDays = Math.ceil(Math.abs(now - firstLogDate) / (1000 * 60 * 60 * 24));
       setDaysClean(diffDays);
-      
+
       // Create chart data
       const uniqueDates = [...new Set(logs.map(log => log.date))].sort();
       const chartDataArray = uniqueDates.map(date => {
         const logsForDate = logs.filter(log => log.date === date);
         const avgIntensity = logsForDate.reduce((sum, log) => sum + log.intensity, 0) / logsForDate.length;
         const daysSinceStart = Math.ceil(Math.abs(new Date(date) - firstLogDate) / (1000 * 60 * 60 * 24));
-        
+
         return {
           date,
           intensity: Math.round(avgIntensity * 10) / 10,
           thcLevel: estimateTHCLevels(usageFrequency, daysSinceStart)
         };
       });
-      
+
       setChartData(chartDataArray);
-      
+
       // Calculate current THC level and pass probability
       const currentTHC = estimateTHCLevels(usageFrequency, diffDays);
       setThcLevel(currentTHC);
       setPassProbability(Math.max(0, Math.min(100, 100 - currentTHC)));
     }
   }, [logs, usageFrequency]);
-  
+
   // Helper methods
   const handleUsageFrequencyChange = async (e) => {
     const newFrequency = e.target.value;
     setUsageFrequency(newFrequency);
     try {
-      await setDoc(doc(db, "settings", "user"), { 
+      await setDoc(doc(db, "settings", "user"), {
         usageFrequency: newFrequency,
         updatedAt: Timestamp.now()
       }, { merge: true });
@@ -174,12 +174,12 @@ function App() {
       console.error("Error updating usage frequency:", err);
     }
   };
-  
+
   const toggleDarkMode = async () => {
     const newMode = !darkMode;
     setDarkMode(newMode);
     try {
-      await setDoc(doc(db, "settings", "user"), { 
+      await setDoc(doc(db, "settings", "user"), {
         darkMode: newMode,
         updatedAt: Timestamp.now()
       }, { merge: true });
@@ -187,14 +187,14 @@ function App() {
       console.error("Error updating dark mode:", err);
     }
   };
-  
+
   const updateHealthMetric = async (metric, change) => {
     const stateUpdater = metric === 'water' ? setWaterIntake : setExercise;
     const currentValue = metric === 'water' ? waterIntake : exercise;
     const newValue = Math.max(0, currentValue + change);
-    
+
     stateUpdater(newValue);
-    
+
     try {
       const today = new Date().toISOString().split('T')[0];
       const healthQuery = query(collection(db, "healthTracking"), where("date", "==", today));
@@ -203,7 +203,7 @@ function App() {
         [metric === 'water' ? 'waterIntake' : 'exercise']: newValue,
         updatedAt: Timestamp.now()
       };
-      
+
       if (snapshot.empty) {
         const newDoc = {
           date: today,
@@ -219,22 +219,22 @@ function App() {
       console.error(`Error updating ${metric}:`, err);
     }
   };
-  
+
   const toggleSymptom = (symptom) => {
-    setSelectedSymptoms(prev => 
-      prev.includes(symptom) 
-        ? prev.filter(s => s !== symptom) 
+    setSelectedSymptoms(prev =>
+      prev.includes(symptom)
+        ? prev.filter(s => s !== symptom)
         : [...prev, symptom]
     );
   };
-  
+
   const addCustomSymptom = () => {
     if (customSymptom && !selectedSymptoms.includes(customSymptom)) {
       setSelectedSymptoms(prev => [...prev, customSymptom]);
       setCustomSymptom('');
     }
   };
-  
+
   const saveLog = async () => {
     try {
       const newLog = {
@@ -245,22 +245,22 @@ function App() {
         notes,
         createdAt: Timestamp.now()
       };
-      
+
       const docRef = doc(collection(db, "logs"));
       await setDoc(docRef, newLog);
-      
+
       setLogs([{ id: docRef.id, ...newLog }, ...logs]);
       setSelectedSymptoms([]);
       setNotes('');
       setIntensity(5);
-      
+
       localStorage.setItem('detoxLogs', JSON.stringify([{ id: docRef.id, ...newLog }, ...logs]));
     } catch (err) {
       console.error("Error adding log:", err);
       alert("Failed to save entry. Please try again.");
     }
   };
-  
+
   const saveTestResult = async (result) => {
     try {
       const newResult = {
@@ -269,21 +269,21 @@ function App() {
         notes: notes,
         createdAt: Timestamp.now()
       };
-      
+
       const testCollection = collection(db, "testResults");
       const docRef = doc(testCollection);
       await setDoc(docRef, newResult);
-      
+
       setTestResults([{ id: docRef.id, ...newResult }, ...testResults]);
       setNotes('');
-      
+
       return true;
     } catch (err) {
       console.error("Error saving test result:", err);
       return false;
     }
   };
-  
+
   const deleteLog = async (id) => {
     try {
       await deleteDoc(doc(db, "logs", id));
@@ -295,25 +295,25 @@ function App() {
       alert("Failed to delete entry. Please try again.");
     }
   };
-  
+
   const exportData = () => {
     const dataStr = JSON.stringify({
       logs, testResults, usageFrequency, daysClean, exportDate: new Date().toISOString()
     }, null, 2);
-    const dataUri = 'data:application/json;charset=utf-8,'+ encodeURIComponent(dataStr);
+    const dataUri = 'data:application/json;charset=utf-8,' + encodeURIComponent(dataStr);
     const exportFileName = `cyberdetox-data-${new Date().toISOString().split('T')[0]}.json`;
-    
+
     const link = document.createElement('a');
     link.setAttribute('href', dataUri);
     link.setAttribute('download', exportFileName);
     link.click();
   };
-  
+
   const simulateTest = () => {
     const passes = Math.random() * 100 <= passProbability;
     alert(`Test Simulation: ${passes ? "PASS" : "FAIL"}\n\nPass Probability: ${passProbability}%\nTHC Level: ${thcLevel}%`);
   };
-  
+
   // Render loading state
   if (isLoading) {
     return (
@@ -322,7 +322,7 @@ function App() {
       </div>
     );
   }
-  
+
   return (
     <div className={`app-container ${darkMode ? 'dark-mode' : ''}`}>
       <div className="content-wrapper">
@@ -335,46 +335,46 @@ function App() {
             <button onClick={toggleDarkMode} className="mode-toggle">{darkMode ? "☀️" : "🌙"}</button>
           </div>
         </header>
-        
+
         {error && <div className="error-message">{error} <button onClick={() => setError(null)}>Dismiss</button></div>}
-        
+
         {/* Tip of the day */}
         <div className="tip-card"><strong>Tip:</strong> {randomTip}</div>
-        
+
         {/* Navigation */}
         <div className="nav-tabs">
-          <button 
+          <button
             className={activeTab === 'dashboard' ? 'active' : ''}
             onClick={() => setActiveTab('dashboard')}
           >
             Dashboard
           </button>
-          <button 
+          <button
             className={activeTab === 'log' ? 'active' : ''}
             onClick={() => setActiveTab('log')}
           >
             Log Symptoms
           </button>
-          <button 
+          <button
             className={activeTab === 'tests' ? 'active' : ''}
             onClick={() => setActiveTab('tests')}
           >
             Test Results
           </button>
-          <button 
+          <button
             className={activeTab === 'health' ? 'active' : ''}
             onClick={() => setActiveTab('health')}
           >
             Health
           </button>
-          <button 
+          <button
             className={activeTab === 'resources' ? 'active' : ''}
             onClick={() => setActiveTab('resources')}
           >
             Resources
           </button>
         </div>
-        
+
         {/* Content based on active tab */}
         {activeTab === 'dashboard' && (
           <>
@@ -403,7 +403,20 @@ function App() {
                 </div>
               </div>
             </div>
-            
+
+            <div className="usage-selector">
+              <label>Update Usage Pattern:</label>
+              <select
+                value={usageFrequency}
+                onChange={handleUsageFrequencyChange}
+                className="select-input"
+              >
+                <option value="heavy">Heavy (daily use)</option>
+                <option value="moderate">Moderate (several times/week)</option>
+                <option value="light">Light (occasional use)</option>
+              </select>
+            </div>
+
             <div className="card">
               <h2>Progress Chart</h2>
               <div className="chart-container">
@@ -428,7 +441,7 @@ function App() {
             </div>
           </>
         )}
-        
+
         {activeTab === 'log' && (
           <div className="card">
             <h2>Log New Entry</h2>
@@ -436,7 +449,7 @@ function App() {
               <label>Date:</label>
               <input type="date" value={currentDate} onChange={(e) => setCurrentDate(e.target.value)} className="text-input" />
             </div>
-            
+
             <div className="input-group">
               <label>Symptoms:</label>
               <div className="symptoms-grid">
@@ -450,10 +463,10 @@ function App() {
                   </button>
                 ))}
               </div>
-              
+
               <div className="custom-symptom">
-                <input 
-                  type="text" 
+                <input
+                  type="text"
                   value={customSymptom}
                   onChange={(e) => setCustomSymptom(e.target.value)}
                   placeholder="Custom symptom..."
@@ -462,13 +475,13 @@ function App() {
                 <button onClick={addCustomSymptom} className="action-btn">Add</button>
               </div>
             </div>
-            
+
             <div className="input-group">
               <label>Intensity (1-10):</label>
-              <input 
-                type="range" 
-                min="1" 
-                max="10" 
+              <input
+                type="range"
+                min="1"
+                max="10"
                 value={intensity}
                 onChange={(e) => setIntensity(parseInt(e.target.value))}
                 className="range-input"
@@ -479,46 +492,46 @@ function App() {
                 <span>10</span>
               </div>
             </div>
-            
+
             <div className="input-group">
               <label>Notes:</label>
-              <textarea 
+              <textarea
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
                 className="textarea-input"
                 placeholder="How are you feeling? Any coping strategies that helped today?"
               ></textarea>
             </div>
-            
+
             <button onClick={saveLog} className="save-btn">SAVE ENTRY</button>
           </div>
         )}
-        
+
         {activeTab === 'tests' && (
           <div className="card">
             <h2>THC Test Results</h2>
-            
+
             <div className="test-input-section">
               <div className="input-group">
                 <label>Date:</label>
-                <input 
-                  type="date" 
+                <input
+                  type="date"
                   value={currentDate}
                   onChange={(e) => setCurrentDate(e.target.value)}
                   className="text-input"
                 />
               </div>
-              
+
               <div className="input-group">
                 <label>Test Result:</label>
                 <div className="test-buttons">
-                  <button 
+                  <button
                     onClick={() => saveTestResult('positive')}
                     className="test-btn positive"
                   >
                     Positive (Failed)
                   </button>
-                  <button 
+                  <button
                     onClick={() => saveTestResult('negative')}
                     className="test-btn negative"
                   >
@@ -526,10 +539,10 @@ function App() {
                   </button>
                 </div>
               </div>
-              
+
               <div className="input-group">
                 <label>Notes:</label>
-                <textarea 
+                <textarea
                   value={notes}
                   onChange={(e) => setNotes(e.target.value)}
                   className="textarea-input"
@@ -537,10 +550,10 @@ function App() {
                 ></textarea>
               </div>
             </div>
-            
+
             <div className="test-results-list">
               <h3>Previous Test Results</h3>
-              
+
               {testResults.length === 0 ? (
                 <p className="empty-results">No test results recorded yet.</p>
               ) : (
@@ -553,7 +566,7 @@ function App() {
                           {test.result === 'positive' ? 'Failed' : 'Passed'}
                         </span>
                       </div>
-                      
+
                       {test.notes && (
                         <div className="result-notes">
                           <strong>Notes:</strong> {test.notes}
@@ -566,11 +579,11 @@ function App() {
             </div>
           </div>
         )}
-        
+
         {activeTab === 'health' && (
           <div className="card">
             <h2>Health Tracking</h2>
-            
+
             <div className="health-section">
               <h3>Water Intake</h3>
               <div className="progress-container">
@@ -582,7 +595,7 @@ function App() {
                 <button onClick={() => updateHealthMetric('water', 1)} className="health-btn">+</button>
               </div>
             </div>
-            
+
             <div className="health-section">
               <h3>Exercise (Minutes)</h3>
               <div className="progress-container">
@@ -597,7 +610,7 @@ function App() {
             </div>
           </div>
         )}
-        
+
         {activeTab === 'resources' && (
           <div className="card">
             <h2>Navy Resources</h2>
@@ -608,20 +621,20 @@ function App() {
                 </li>
               ))}
             </ul>
-            
+
             <h3>Success Tips</h3>
             <ul className="tips-list">
               {DETOX_TIPS.map((tip, index) => (
                 <li key={index}>{tip}</li>
               ))}
             </ul>
-            
+
             <div className="test-info">
               <button onClick={simulateTest} className="test-btn">Simulate Test</button>
             </div>
           </div>
         )}
-        
+
         {/* Log History (shown on all tabs except resources and tests) */}
         {(activeTab !== 'resources' && activeTab !== 'tests') && (
           <div className="card">
