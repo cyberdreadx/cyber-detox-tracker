@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { collection, doc, setDoc, getDoc, getDocs, deleteDoc, query, orderBy, Timestamp, where } from "firebase/firestore";
 import { db } from "./firebase";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
@@ -11,12 +11,21 @@ const NAVY_RESOURCES = [
   { title: "Navy Drug and Alcohol Prevention", url: "https://www.mynavyhr.navy.mil/Support-Services/21st-Century-Sailor/Drug-Alcohol/" },
   { title: "Navy Recruiting Command", url: "https://www.cnrc.navy.mil/" }
 ];
+const GENERAL_RESOURCES = [
+  { title: "SAMHSA's National Helpline", url: "https://www.samhsa.gov/find-help/national-helpline" },
+  { title: "National Institute on Drug Abuse", url: "https://nida.nih.gov/" },
+  { title: "Addiction Center", url: "https://www.addictioncenter.com/" }
+];
+const USERS = [
+  { id: "cyberdreadx", name: "Cyberdreadx", isNavy: true, targetDate: 'April 23, 2025' },
+  { id: "shines", name: "Shines", isNavy: false, targetDate: 'December 31, 2024' }
+];
 
 // Helper functions
-const calculateTimeRemaining = () => {
-  const targetDate = new Date('April 23, 2025');
+const calculateTimeRemaining = (targetDate) => {
+  const target = new Date(targetDate);
   const now = new Date();
-  const difference = targetDate - now;
+  const difference = target - now;
   const days = Math.floor(difference / (1000 * 60 * 60 * 24));
   const hours = Math.floor((difference % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
   const minutes = Math.floor((difference % (1000 * 60 * 60)) / (1000 * 60));
@@ -38,7 +47,7 @@ function App() {
   const [notes, setNotes] = useState('');
   const [intensity, setIntensity] = useState(5);
   const [usageFrequency, setUsageFrequency] = useState('heavy');
-  const [timeRemaining, setTimeRemaining] = useState(calculateTimeRemaining());
+  const [timeRemaining, setTimeRemaining] = useState(calculateTimeRemaining('April 23, 2025'));
   const [daysClean, setDaysClean] = useState(0);
   const [waterIntake, setWaterIntake] = useState(0);
   const [exercise, setExercise] = useState(0);
@@ -50,6 +59,7 @@ function App() {
   const [error, setError] = useState(null);
   const [chartData, setChartData] = useState([]);
   const [randomTip, setRandomTip] = useState('');
+  const [currentUser, setCurrentUser] = useState(USERS[0]);
 
   // Set up a random tip and change it daily
   useEffect(() => {
@@ -62,20 +72,86 @@ function App() {
     return () => clearInterval(tipInterval);
   }, []);
 
+  // Migration function to handle older data structure for Cyberdreadx
+  const migrateUserData = useCallback(async () => {
+    try {
+      // Check for logs in the root collection
+      const rootLogsCollection = collection(db, "logs");
+      const logsSnapshot = await getDocs(rootLogsCollection);
+      
+      if (!logsSnapshot.empty) {
+        // If logs exist in root, migrate them to user-specific collection
+        const userLogsCollection = collection(db, `users/${currentUser.id}/logs`);
+        
+        for (const doc of logsSnapshot.docs) {
+          const logData = doc.data();
+          await setDoc(doc(userLogsCollection, doc.id), {
+            ...logData,
+            migratedAt: Timestamp.now()
+          });
+        }
+        
+        console.log(`Migrated ${logsSnapshot.size} logs to user-specific collection`);
+      }
+      
+      // Check for test results in the root collection
+      const rootTestsCollection = collection(db, "testResults");
+      const testsSnapshot = await getDocs(rootTestsCollection);
+      
+      if (!testsSnapshot.empty) {
+        // If test results exist in root, migrate them to user-specific collection
+        const userTestsCollection = collection(db, `users/${currentUser.id}/testResults`);
+        
+        for (const doc of testsSnapshot.docs) {
+          const testData = doc.data();
+          await setDoc(doc(userTestsCollection, doc.id), {
+            ...testData,
+            migratedAt: Timestamp.now()
+          });
+        }
+        
+        console.log(`Migrated ${testsSnapshot.size} test results to user-specific collection`);
+      }
+      
+      // Migrate settings
+      const settingsDoc = doc(db, "settings", "user");
+      const settingsSnapshot = await getDoc(settingsDoc);
+      
+      if (settingsSnapshot.exists()) {
+        const settingsData = settingsSnapshot.data();
+        const userSettingsCollection = collection(db, `users/${currentUser.id}/settings`);
+        await setDoc(doc(userSettingsCollection, "user"), {
+          ...settingsData,
+          migratedAt: Timestamp.now()
+        });
+        
+        console.log("Migrated user settings to user-specific collection");
+      }
+      
+    } catch (err) {
+      console.error("Error during data migration:", err);
+    }
+  }, [currentUser.id]);
+
   // Fetch data from Firebase
   useEffect(() => {
     const fetchData = async () => {
       try {
         setIsLoading(true);
 
-        // Get logs from Firestore
-        const logsCollection = collection(db, "logs");
+        // Check for legacy data in root collections that needs migration
+        if (currentUser.id === "cyberdreadx") {
+          await migrateUserData();
+        }
+
+        // Get logs from Firestore based on current user
+        const logsCollection = collection(db, `users/${currentUser.id}/logs`);
         const q = query(logsCollection, orderBy("createdAt", "desc"));
         const querySnapshot = await getDocs(q);
         const logsList = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 
-        // Get test results from Firestore
-        const testCollection = collection(db, "testResults");
+        // Get test results from Firestore for current user
+        const testCollection = collection(db, `users/${currentUser.id}/testResults`);
         const testQuery = query(testCollection, orderBy("date", "desc"));
         const testSnapshot = await getDocs(testQuery);
         const resultsList = testSnapshot.docs.map(doc => ({
@@ -83,8 +159,8 @@ function App() {
           ...doc.data()
         }));
 
-        // Get settings
-        const settingsDoc = doc(db, "settings", "user");
+        // Get settings for current user
+        const settingsDoc = doc(db, `users/${currentUser.id}/settings`, "user");
         const settingsSnapshot = await getDoc(settingsDoc);
         if (settingsSnapshot.exists()) {
           const data = settingsSnapshot.data();
@@ -92,15 +168,19 @@ function App() {
           if (data.darkMode !== undefined) setDarkMode(data.darkMode);
         }
 
-        // Get health data for today
+        // Get health data for today for current user
         const today = new Date().toISOString().split('T')[0];
-        const healthCollection = collection(db, "healthTracking");
+        const healthCollection = collection(db, `users/${currentUser.id}/healthTracking`);
         const todayQuery = query(healthCollection, where("date", "==", today));
         const healthSnapshot = await getDocs(todayQuery);
         if (!healthSnapshot.empty) {
           const healthData = healthSnapshot.docs[0].data();
           setWaterIntake(healthData.waterIntake || 0);
           setExercise(healthData.exercise || 0);
+        } else {
+          // Reset health metrics if no data for today
+          setWaterIntake(0);
+          setExercise(0);
         }
 
         setLogs(logsList);
@@ -109,13 +189,13 @@ function App() {
       } catch (err) {
         console.error("Error fetching data:", err);
         setError("Failed to load data. Using localStorage as fallback.");
-        const savedLogs = localStorage.getItem('detoxLogs');
+        const savedLogs = localStorage.getItem(`detoxLogs-${currentUser.id}`);
         if (savedLogs) setLogs(JSON.parse(savedLogs));
         setIsLoading(false);
       }
     };
     fetchData();
-  }, []);
+  }, [currentUser.id, migrateUserData]);
 
   // Apply dark mode
   useEffect(() => {
@@ -124,9 +204,9 @@ function App() {
 
   // Update time remaining every minute
   useEffect(() => {
-    const timer = setInterval(() => setTimeRemaining(calculateTimeRemaining()), 60000);
+    const timer = setInterval(() => setTimeRemaining(calculateTimeRemaining(currentUser.targetDate)), 60000);
     return () => clearInterval(timer);
-  }, []);
+  }, [currentUser.targetDate]);
 
   // Process logs for chart and calculations
   useEffect(() => {
@@ -158,8 +238,14 @@ function App() {
       const currentTHC = estimateTHCLevels(usageFrequency, diffDays);
       setThcLevel(currentTHC);
       setPassProbability(Math.max(0, Math.min(100, 100 - currentTHC)));
+    } else {
+      // Reset values when no logs are available
+      setDaysClean(0);
+      setChartData([]);
+      setThcLevel(100);
+      setPassProbability(0);
     }
-  }, [logs, usageFrequency]);
+  }, [logs, usageFrequency, currentUser.id]);
 
   // Helper methods
   const handleUsageFrequencyChange = async (e) => {
@@ -197,7 +283,8 @@ function App() {
 
     try {
       const today = new Date().toISOString().split('T')[0];
-      const healthQuery = query(collection(db, "healthTracking"), where("date", "==", today));
+      const healthCollection = collection(db, `users/${currentUser.id}/healthTracking`);
+      const healthQuery = query(healthCollection, where("date", "==", today));
       const snapshot = await getDocs(healthQuery);
       const updateData = {
         [metric === 'water' ? 'waterIntake' : 'exercise']: newValue,
@@ -211,9 +298,9 @@ function App() {
           exercise: metric === 'exercise' ? newValue : 0,
           createdAt: Timestamp.now()
         };
-        await setDoc(doc(collection(db, "healthTracking")), newDoc);
+        await setDoc(doc(healthCollection), newDoc);
       } else {
-        await setDoc(doc(db, "healthTracking", snapshot.docs[0].id), updateData, { merge: true });
+        await setDoc(doc(db, `users/${currentUser.id}/healthTracking`, snapshot.docs[0].id), updateData, { merge: true });
       }
     } catch (err) {
       console.error(`Error updating ${metric}:`, err);
@@ -246,7 +333,9 @@ function App() {
         createdAt: Timestamp.now()
       };
 
-      const docRef = doc(collection(db, "logs"));
+      // Save to user-specific collection
+      const logsCollection = collection(db, `users/${currentUser.id}/logs`);
+      const docRef = doc(logsCollection);
       await setDoc(docRef, newLog);
 
       setLogs([{ id: docRef.id, ...newLog }, ...logs]);
@@ -254,7 +343,8 @@ function App() {
       setNotes('');
       setIntensity(5);
 
-      localStorage.setItem('detoxLogs', JSON.stringify([{ id: docRef.id, ...newLog }, ...logs]));
+      // Save to localStorage as backup with user ID in key
+      localStorage.setItem(`detoxLogs-${currentUser.id}`, JSON.stringify([{ id: docRef.id, ...newLog }, ...logs]));
     } catch (err) {
       console.error("Error adding log:", err);
       alert("Failed to save entry. Please try again.");
@@ -270,7 +360,7 @@ function App() {
         createdAt: Timestamp.now()
       };
 
-      const testCollection = collection(db, "testResults");
+      const testCollection = collection(db, `users/${currentUser.id}/testResults`);
       const docRef = doc(testCollection);
       await setDoc(docRef, newResult);
 
@@ -326,6 +416,19 @@ function App() {
   return (
     <div className={`app-container ${darkMode ? 'dark-mode' : ''}`}>
       <div className="content-wrapper">
+        {/* User Selection */
+        <div className="user-selection">
+          {USERS.map(user => (
+            <button 
+              key={user.id}
+              onClick={() => setCurrentUser(user)}
+              className={`user-btn ${currentUser.id === user.id ? 'active' : ''}`}
+            >
+              {user.name}
+            </button>
+          ))}
+        </div>}
+
         {/* Header */}
         <header className="app-header">
           <h1 className="title">CyberDetox Tracker</h1>
@@ -613,13 +716,20 @@ function App() {
 
         {activeTab === 'resources' && (
           <div className="card">
-            <h2>Navy Resources</h2>
+            <h2>Resources</h2>
             <ul className="resources-list">
-              {NAVY_RESOURCES.map((resource, index) => (
-                <li key={index}>
-                  <a href={resource.url} target="_blank" rel="noopener noreferrer">{resource.title}</a>
-                </li>
-              ))}
+              {currentUser.isNavy ? 
+                NAVY_RESOURCES.map((resource, index) => (
+                  <li key={index}>
+                    <a href={resource.url} target="_blank" rel="noopener noreferrer">{resource.title}</a>
+                  </li>
+                )) : 
+                GENERAL_RESOURCES.map((resource, index) => (
+                  <li key={index}>
+                    <a href={resource.url} target="_blank" rel="noopener noreferrer">{resource.title}</a>
+                  </li>
+                ))
+              }
             </ul>
 
             <h3>Success Tips</h3>
